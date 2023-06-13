@@ -59,13 +59,14 @@ func extractPaths(svgString string) []string {
 
 func calculatePathArea(svgPath string) (float64, error) {
 	coordinates := extractCoordinates(svgPath)
-	if len(coordinates) < 6 || len(coordinates)%2 != 0 {
+	if len(coordinates) < 6 {
 		return 0, fmt.Errorf("failed to find valid coordinate pairs in SVG path")
 	}
 
 	var areas []float64
 	var startX, startY, lastX, lastY float64
 	var totalArea float64
+	var prefix string
 
 	for i := 0; i < len(coordinates)-1; i += 2 {
 		x, err := strconv.ParseFloat(coordinates[i], 64)
@@ -80,10 +81,11 @@ func calculatePathArea(svgPath string) (float64, error) {
 
 		if i == 0 {
 			startX, startY = x, y
+			prefix = getPrefix(coordinates[0])
 		}
 
 		if i >= 2 && (strings.HasPrefix(coordinates[i], "-") || strings.HasPrefix(coordinates[i+1], "-")) {
-			absX, absY := convertToAbsolute(startX, startY, lastX, lastY, x, y)
+			absX, absY := convertToAbsolute(lastX, lastY, x, y, prefix)
 			area := calculatePolygonArea(startX, startY, lastX, lastY, absX, absY)
 			areas = append(areas, area)
 		}
@@ -110,22 +112,39 @@ func extractCoordinates(svgPath string) []string {
 	return matches
 }
 
-func convertToAbsolute(startX, startY, lastX, lastY, x, y float64) (float64, float64) {
-	if x != lastX && y != lastY {
-		return x, y
+func getPrefix(coord string) string {
+	regexPattern := `^[A-Za-z]+`
+	regex, err := regexp.Compile(regexPattern)
+	if err != nil {
+		return ""
 	}
 
-	if x != lastX {
-		return x, lastY
+	match := regex.FindString(coord)
+	if match != "" {
+		return match
 	}
 
-	if y != lastY {
-		return lastX, y
-	}
-
-	return lastX, lastY
+	return ""
 }
 
+func convertToAbsolute(lastX, lastY, x, y float64, prefix string) (float64, float64) {
+	switch prefix {
+	case "M", "L":
+		return x, y
+	case "m", "l":
+		return lastX + x, lastY + y
+	case "H":
+		return x, lastY
+	case "h":
+		return lastX + x, lastY
+	case "V":
+		return lastX, y
+	case "v":
+		return lastX, lastY + y
+	}
+
+	return x, y
+}
 func calculatePolygonArea(x1, y1, x2, y2, x3, y3 float64) float64 {
 	area := 0.5 * ((x1*y2 + x2*y3 + x3*y1) - (x2*y1 + x3*y2 + x1*y3))
 	return math.Abs(area)
