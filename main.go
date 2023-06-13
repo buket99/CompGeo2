@@ -5,112 +5,134 @@ import (
 	"io/ioutil"
 	"math"
 	"regexp"
+	"strconv"
 	"strings"
-
-	"github.com/tdewolff/parse"
 )
 
-type Point struct {
-	X float64
-	Y float64
-}
+func extractCoordinates(svgPath string) ([]float64, error) {
+	// Define the regular expression pattern to match the "d" parameter
+	regexPattern := `[MmLlHhVvZz]+((?:-?\d+(?:\.\d+)?(?:e-?\d+)?[, ]*)+)`
 
-type Path struct {
-	Points []Point
-}
+	// Compile the regular expression
+	regex, err := regexp.Compile(regexPattern)
+	if err != nil {
+		return nil, err
+	}
 
-func parseSVGPath(svgPath string) (*Path, error) {
-	path := &Path{}
-	r := strings.NewReader(svgPath)
+	// Find all matches of the pattern in the SVG path
+	matches := regex.FindAllStringSubmatch(svgPath, -1)
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("failed to find 'd' parameter in SVG path")
+	}
 
-	for {
-		t, _, _ := parse.Next(r)
-		if t == parse.ErrorToken {
-			break
-		}
+	// Extract the coordinates from the matched substrings
+	var allCoordinates []float64
+	for _, match := range matches {
+		coordinates := match[1]
 
-		if t == parse.CommandToken {
-			c, _ := parse.ReadCommand(r)
+		// Split the coordinates by spaces, commas, or other separators
+		coordinatesArr := strings.FieldsFunc(coordinates, func(r rune) bool {
+			return r == ',' || r == ' '
+		})
 
-			switch c {
-			case 'm', 'M':
-				for {
-					p, err := parse.ReadFloats(r, 2)
-					if err != nil {
-						break
-					}
+		// Process the coordinates to obtain absolute values
+		var absoluteCoordinates []float64
+		var lastX, lastY float64
+		for i := 0; i < len(coordinatesArr); i += 2 {
+			cmd := coordinatesArr[i]
 
-					path.Points = append(path.Points, Point{X: p[0], Y: p[1]})
-				}
-			case 'l', 'L':
-				for {
-					p, err := parse.ReadFloats(r, 2)
-					if err != nil {
-						break
-					}
+			if len(coordinatesArr)-i < 2 {
+				break // Handle edge case of insufficient coordinates
+			}
 
-					path.Points = append(path.Points, Point{X: p[0], Y: p[1]})
-				}
-			case 'z', 'Z':
-				// Ignore close path commands
-			default:
-				return nil, fmt.Errorf("Unsupported SVG path command: %c", c)
+			if strings.ToUpper(cmd) == "Z" {
+				continue // Skip Z command
+			}
+
+			x, _ := strconv.ParseFloat(coordinatesArr[i+0], 64)
+			y, _ := strconv.ParseFloat(coordinatesArr[i+1], 64)
+
+			// Handle SVG commands that modify the last position
+			switch strings.ToUpper(cmd) {
+			case "M", "L":
+				// Move or Line commands
+				x += lastX
+				y += lastY
+				absoluteCoordinates = append(absoluteCoordinates, x, y)
+				lastX, lastY = x, y
+			case "H":
+				// Horizontal Line command
+				x += lastX
+				absoluteCoordinates = append(absoluteCoordinates, x, lastY)
+				lastX = x
+			case "V":
+				// Vertical Line command
+				y += lastY
+				absoluteCoordinates = append(absoluteCoordinates, lastX, y)
+				lastY = y
 			}
 		}
+
+		allCoordinates = append(allCoordinates, absoluteCoordinates...)
 	}
 
-	return path, nil
+	return allCoordinates, nil
 }
 
-func calculatePathArea(path *Path) float64 {
-	area := 0.0
-	n := len(path.Points)
+func calculatePolygonArea(coordinates []float64) float64 {
+	var area float64
+	numCoordinates := len(coordinates)
 
-	if n < 3 {
-		return area
+	// Calculate the area using the shoelace formula
+	for i := 0; i < numCoordinates; i += 2 {
+		x1 := coordinates[i]
+		y1 := coordinates[i+1]
+		x2 := coordinates[(i+2)%numCoordinates]
+		y2 := coordinates[(i+3)%numCoordinates]
+
+		area += (x1 * y2) - (x2 * y1)
 	}
 
-	for i := 0; i < n-1; i++ {
-		area += (path.Points[i].X * path.Points[i+1].Y) - (path.Points[i+1].X * path.Points[i].Y)
-	}
+	area = math.Abs(area / 2)
 
-	area += (path.Points[n-1].X * path.Points[0].Y) - (path.Points[0].X * path.Points[n-1].Y)
-
-	return math.Abs(area) / 2.0
+	return area
 }
 
 func main() {
-	// Read the SVG data from a file
-	svgData, err := ioutil.ReadFile("path/to/svg/file.svg")
+	// Read SVG file
+	filePath := "DeutschlandMitStaedten.svg"
+	svgData, err := ioutil.ReadFile(filePath)
 	if err != nil {
-		fmt.Println("Failed to read SVG file:", err)
+		fmt.Println("Error:", err)
 		return
 	}
 
-	// Convert the SVG data to a string
-	svgString := string(svgData)
+	svgContent := string(svgData)
 
-	// Define the regular expression pattern to match the path elements
-	pathRegex := regexp.MustCompile(`<path\s+[^>]*d="([^"]+)"[^>]*>`)
+	// Define the regular expression pattern to match SVG paths
+	regexPathPattern := `<path[^>]*d="([^"]+)"[^>]*>`
 
-	// Find all matches of the pattern in the SVG data
-	matches := pathRegex.FindAllStringSubmatch(svgString, -1)
+	// Compile the regular expression for SVG paths
+	regexPath, err := regexp.Compile(regexPathPattern)
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
 
-	// Iterate over the matches and extract the path coordinates
-	for _, match := range matches {
-		if len(match) >= 2 {
-			svgPath := match[1]
+	// Find all matches of SVG paths in the SVG content
+	pathMatches := regexPath.FindAllStringSubmatch(svgContent, -1)
 
-			// Parse the SVG path to get the coordinates
-			path, err := parseSVGPath(svgPath)
-			if err != nil {
-				fmt.Println("Failed to parse SVG path:", err)
-				continue
-			}
+	// Iterate over each path and calculate the area
+	for i, match := range pathMatches {
+		svgPath := match[1]
 
-			// Calculate the area surrounded by the path
-			area := calculatePathArea(path)
-			fmt.Println("Path Area:", area)
+		coordinates, err := extractCoordinates(svgPath)
+		if err != nil {
+			fmt.Printf("Error extracting coordinates for path %d: %s\n", i+1, err)
+			continue
 		}
+
+		area := calculatePolygonArea(coordinates)
+		fmt.Printf("Area of path %d: %.2f\n", i+1, area)
 	}
 }
