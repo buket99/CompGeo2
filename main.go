@@ -38,8 +38,37 @@ func main() {
 		var stadt = extractStadt(path, id)
 		staedte = append(staedte, stadt)
 		// TODO Buket : hier Berechnung einfügen
+		for i := 0; i < len(staedte); i++ {
+			for j := 0; j < len(bundeslaender); j++ {
+				var test = istStadtInBundesland(staedte[i], bundeslaender[j])
+				if test == true {
+					fmt.Println("City", staedte[i], "is in", j)
+				}
+			}
+		}
 		fmt.Printf("Found following City: %s\n", stadt.id)
 	}
+}
+
+func istStadtInBundesland(stadt City, bundesl Bundesland) bool {
+	numVertices := len(bundesl.coordinates)
+	if numVertices < 3 {
+		return false
+	}
+	if stadt.id == "Berlin" && bundesl.id == "Berlin" {
+
+	}
+	intersections := 0
+	for i := 0; i < numVertices; i++ {
+		currentVertex := bundesl.coordinates[i]
+		nextVertex := bundesl.coordinates[(i+1)%numVertices]
+
+		if (currentVertex.Y > stadt.coordinate.Y) != (nextVertex.Y > stadt.coordinate.Y) &&
+			stadt.coordinate.X < (nextVertex.X-currentVertex.X)*(stadt.coordinate.Y-currentVertex.Y)/(nextVertex.Y-currentVertex.Y)+currentVertex.X {
+			intersections++
+		}
+	}
+	return intersections%2 != 0
 }
 
 func extractStaedtePaths(svgString string) map[string]string {
