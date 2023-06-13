@@ -7,11 +7,12 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 func extractCoordinates(svgPath string) ([]float64, error) {
 	// Define the regular expression pattern to match the "d" parameter
-	regexPattern := `[MmLlHhVvZz]+((?:-?\d+(?:\.\d+)?(?:e-?\d+)?[, ]*)+)`
+	regexPattern := `([MmZzLlHhVvCcSsQqTtAa])((?:-?\d+(?:\.\d+)?(?:e-?\d+)?[, ]*)+)`
 
 	// Compile the regular expression
 	regex, err := regexp.Compile(regexPattern)
@@ -26,9 +27,11 @@ func extractCoordinates(svgPath string) ([]float64, error) {
 	}
 
 	// Extract the coordinates from the matched substrings
-	var allCoordinates []float64
+	var absoluteCoordinates []float64
+	var lastX, lastY float64
 	for _, match := range matches {
-		coordinates := match[1]
+		command := match[1]
+		coordinates := match[2]
 
 		// Split the coordinates by spaces, commas, or other separators
 		coordinatesArr := strings.FieldsFunc(coordinates, func(r rune) bool {
@@ -36,47 +39,26 @@ func extractCoordinates(svgPath string) ([]float64, error) {
 		})
 
 		// Process the coordinates to obtain absolute values
-		var absoluteCoordinates []float64
-		var lastX, lastY float64
 		for i := 0; i < len(coordinatesArr); i += 2 {
-			cmd := coordinatesArr[i]
-
-			if len(coordinatesArr)-i < 2 {
-				break // Handle edge case of insufficient coordinates
-			}
-
-			if strings.ToUpper(cmd) == "Z" {
-				continue // Skip Z command
-			}
-
-			x, _ := strconv.ParseFloat(coordinatesArr[i+0], 64)
+			x, _ := strconv.ParseFloat(coordinatesArr[i], 64)
 			y, _ := strconv.ParseFloat(coordinatesArr[i+1], 64)
 
-			// Handle SVG commands that modify the last position
-			switch strings.ToUpper(cmd) {
-			case "M", "L":
-				// Move or Line commands
-				x += lastX
-				y += lastY
-				absoluteCoordinates = append(absoluteCoordinates, x, y)
+			// Handle absolute and relative coordinates
+			if unicode.IsUpper(rune(command[0])) {
+				// Absolute coordinate
 				lastX, lastY = x, y
-			case "H":
-				// Horizontal Line command
+			} else {
+				// Relative coordinate
 				x += lastX
-				absoluteCoordinates = append(absoluteCoordinates, x, lastY)
-				lastX = x
-			case "V":
-				// Vertical Line command
 				y += lastY
-				absoluteCoordinates = append(absoluteCoordinates, lastX, y)
-				lastY = y
+				lastX, lastY = x, y
 			}
-		}
 
-		allCoordinates = append(allCoordinates, absoluteCoordinates...)
+			absoluteCoordinates = append(absoluteCoordinates, x, y)
+		}
 	}
 
-	return allCoordinates, nil
+	return absoluteCoordinates, nil
 }
 
 func calculatePolygonArea(coordinates []float64) float64 {
