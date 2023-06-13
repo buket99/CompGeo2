@@ -21,19 +21,19 @@ func main() {
 
 	paths := extractPaths(svgString)
 
-	for i, path := range paths {
+	for id, path := range paths {
 		area, err := calculatePathArea(path)
 		if err != nil {
-			fmt.Printf("Error calculating area for path %d: %s\n", i+1, err)
+			fmt.Printf("Error calculating area for %s: %s\n", id, err)
 			continue
 		}
 
-		fmt.Printf("Area for path %d: %f\n", i+1, area)
+		fmt.Printf("Area for %s: %f\n", id, area)
 	}
 }
 
-func extractPaths(svgString string) []string {
-	regexPattern := `<path[^>]+d\s*=\s*["']([^"']+)["'][^>]*>`
+func extractPaths(svgString string) map[string]string {
+	regexPattern := `<path[^>]+id\s*=\s*["']([^"']+)["'][^>]*\sd\s*=\s*["']([^"']+)["'][^>]*>`
 	regex, err := regexp.Compile(regexPattern)
 	if err != nil {
 		fmt.Println("Error compiling regex:", err)
@@ -46,11 +46,12 @@ func extractPaths(svgString string) []string {
 		return nil
 	}
 
-	var paths []string
+	paths := make(map[string]string)
 	for _, match := range matches {
-		if len(match) > 1 {
-			path := match[1]
-			paths = append(paths, path)
+		if len(match) > 2 {
+			id := match[1]
+			path := match[2]
+			paths[id] = path
 		}
 	}
 
