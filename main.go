@@ -7,114 +7,126 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"unicode"
 )
 
-func extractCoordinates(svgPath string) ([]float64, error) {
-	// Define the regular expression pattern to match the "d" parameter
-	regexPattern := `([MmZzLlHhVvCcSsQqTtAa])((?:-?\d+(?:\.\d+)?(?:e-?\d+)?[, ]*)+)`
-
-	// Compile the regular expression
-	regex, err := regexp.Compile(regexPattern)
-	if err != nil {
-		return nil, err
-	}
-
-	// Find all matches of the pattern in the SVG path
-	matches := regex.FindAllStringSubmatch(svgPath, -1)
-	if len(matches) == 0 {
-		return nil, fmt.Errorf("failed to find 'd' parameter in SVG path")
-	}
-
-	// Extract the coordinates from the matched substrings
-	var absoluteCoordinates []float64
-	var lastX, lastY float64
-	for _, match := range matches {
-		command := match[1]
-		coordinates := match[2]
-
-		// Split the coordinates by spaces, commas, or other separators
-		coordinatesArr := strings.FieldsFunc(coordinates, func(r rune) bool {
-			return r == ',' || r == ' '
-		})
-
-		// Process the coordinates to obtain absolute values
-		for i := 0; i < len(coordinatesArr); i += 2 {
-			x, _ := strconv.ParseFloat(coordinatesArr[i], 64)
-			y, _ := strconv.ParseFloat(coordinatesArr[i+1], 64)
-
-			// Handle absolute and relative coordinates
-			if unicode.IsUpper(rune(command[0])) {
-				// Absolute coordinate
-				lastX, lastY = x, y
-			} else {
-				// Relative coordinate
-				x += lastX
-				y += lastY
-				lastX, lastY = x, y
-			}
-
-			absoluteCoordinates = append(absoluteCoordinates, x, y)
-		}
-	}
-
-	return absoluteCoordinates, nil
-}
-
-func calculatePolygonArea(coordinates []float64) float64 {
-	var area float64
-	numCoordinates := len(coordinates)
-
-	// Calculate the area using the shoelace formula
-	for i := 0; i < numCoordinates; i += 2 {
-		x1 := coordinates[i]
-		y1 := coordinates[i+1]
-		x2 := coordinates[(i+2)%numCoordinates]
-		y2 := coordinates[(i+3)%numCoordinates]
-
-		area += (x1 * y2) - (x2 * y1)
-	}
-
-	area = math.Abs(area / 2)
-
-	return area
-}
-
 func main() {
-	// Read SVG file
-	filePath := "DeutschlandMitStaedten.svg"
-	svgData, err := ioutil.ReadFile(filePath)
+	svgFile := "DeutschlandMitStaedten.svg"
+	svgContent, err := ioutil.ReadFile(svgFile)
 	if err != nil {
 		fmt.Println("Error:", err)
 		return
 	}
 
-	svgContent := string(svgData)
+	svgString := string(svgContent)
 
-	// Define the regular expression pattern to match SVG paths
-	regexPathPattern := `<path[^>]*d="([^"]+)"[^>]*>`
+	paths := extractPaths(svgString)
 
-	// Compile the regular expression for SVG paths
-	regexPath, err := regexp.Compile(regexPathPattern)
-	if err != nil {
-		fmt.Println("Error:", err)
-		return
-	}
-
-	// Find all matches of SVG paths in the SVG content
-	pathMatches := regexPath.FindAllStringSubmatch(svgContent, -1)
-
-	// Iterate over each path and calculate the area
-	for i, match := range pathMatches {
-		svgPath := match[1]
-
-		coordinates, err := extractCoordinates(svgPath)
+	for i, path := range paths {
+		area, err := calculatePathArea(path)
 		if err != nil {
-			fmt.Printf("Error extracting coordinates for path %d: %s\n", i+1, err)
+			fmt.Printf("Error calculating area for path %d: %s\n", i+1, err)
 			continue
 		}
 
-		area := calculatePolygonArea(coordinates)
-		fmt.Printf("Area of path %d: %.2f\n", i+1, area)
+		fmt.Printf("Area for path %d: %f\n", i+1, area)
 	}
+}
+
+func extractPaths(svgString string) []string {
+	regexPattern := `<path[^>]+d\s*=\s*["']([^"']+)["'][^>]*>`
+	regex, err := regexp.Compile(regexPattern)
+	if err != nil {
+		fmt.Println("Error compiling regex:", err)
+		return nil
+	}
+
+	matches := regex.FindAllStringSubmatch(svgString, -1)
+	if len(matches) == 0 {
+		fmt.Println("No matches found")
+		return nil
+	}
+
+	var paths []string
+	for _, match := range matches {
+		if len(match) > 1 {
+			path := match[1]
+			paths = append(paths, path)
+		}
+	}
+
+	return paths
+}
+
+func calculatePathArea(svgPath string) (float64, error) {
+	coordinates := extractCoordinates(svgPath)
+	if len(coordinates) < 6 || len(coordinates)%2 != 0 {
+		return 0, fmt.Errorf("failed to find valid coordinate pairs in SVG path")
+	}
+
+	var areas []float64
+	var startX, startY, lastX, lastY float64
+	var totalArea float64
+
+	for i := 0; i < len(coordinates)-1; i += 2 {
+		x, err := strconv.ParseFloat(coordinates[i], 64)
+		if err != nil {
+			return 0, err
+		}
+
+		y, err := strconv.ParseFloat(coordinates[i+1], 64)
+		if err != nil {
+			return 0, err
+		}
+
+		if i == 0 {
+			startX, startY = x, y
+		}
+
+		if i >= 2 && (strings.HasPrefix(coordinates[i], "-") || strings.HasPrefix(coordinates[i+1], "-")) {
+			absX, absY := convertToAbsolute(startX, startY, lastX, lastY, x, y)
+			area := calculatePolygonArea(startX, startY, lastX, lastY, absX, absY)
+			areas = append(areas, area)
+		}
+
+		lastX, lastY = x, y
+	}
+
+	for _, area := range areas {
+		totalArea += area
+	}
+
+	return totalArea, nil
+}
+
+func extractCoordinates(svgPath string) []string {
+	regexPattern := `[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?`
+	regex, err := regexp.Compile(regexPattern)
+	if err != nil {
+		return nil
+	}
+
+	matches := regex.FindAllString(svgPath, -1)
+
+	return matches
+}
+
+func convertToAbsolute(startX, startY, lastX, lastY, x, y float64) (float64, float64) {
+	if x != lastX && y != lastY {
+		return x, y
+	}
+
+	if x != lastX {
+		return x, lastY
+	}
+
+	if y != lastY {
+		return lastX, y
+	}
+
+	return lastX, lastY
+}
+
+func calculatePolygonArea(x1, y1, x2, y2, x3, y3 float64) float64 {
+	area := 0.5 * ((x1*y2 + x2*y3 + x3*y1) - (x2*y1 + x3*y2 + x1*y3))
+	return math.Abs(area)
 }
