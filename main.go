@@ -6,7 +6,6 @@ import (
 	"math"
 	"regexp"
 	"strconv"
-	"strings"
 )
 
 func main() {
@@ -37,26 +36,22 @@ func main() {
 	for id, path := range staedtePaths {
 		var stadt = extractStadt(path, id)
 		staedte = append(staedte, stadt)
-		// TODO Buket : hier Berechnung einfügen
-		for i := 0; i < len(staedte); i++ {
-			for j := 0; j < len(bundeslaender); j++ {
-				var test = istStadtInBundesland(staedte[i], bundeslaender[j])
-				if test == true {
-					fmt.Println("City", staedte[i], "is in", j)
-				}
+	}
+	for i := 0; i < len(staedte); i++ {
+		for j := 0; j < len(bundeslaender); j++ {
+			var test = istStadtInBundesland(staedte[i], bundeslaender[j])
+			if test == true {
+				fmt.Println("City", staedte[i].id, "is in", bundeslaender[j].id)
 			}
 		}
-		fmt.Printf("Found following City: %s\n", stadt.id)
 	}
+
 }
 
 func istStadtInBundesland(stadt City, bundesl Bundesland) bool {
 	numVertices := len(bundesl.coordinates)
 	if numVertices < 3 {
 		return false
-	}
-	if stadt.id == "Berlin" && bundesl.id == "Berlin" {
-
 	}
 	intersections := 0
 	for i := 0; i < numVertices; i++ {
@@ -116,27 +111,30 @@ func extractBundesland(path string, id string) Bundesland {
 	var lastX, lastY float64
 	var prefix string
 
-	for i := 0; i < len(coordinates)-1; i += 2 {
-		x, err := strconv.ParseFloat(coordinates[i], 64)
-		if err != nil {
-			//return Bundesland{0,[]}, err
-		}
+	for _, coord := range coordinates {
+		if len(coord) > 1 {
+			x, err := strconv.ParseFloat(coord[1], 64)
+			if err != nil {
+				// Handle error
+			}
 
-		y, err := strconv.ParseFloat(coordinates[i+1], 64)
-		if err != nil {
-			//return Bundesland{0,[]}, err
-		}
+			y, err := strconv.ParseFloat(coord[2], 64)
+			if err != nil {
+				// Handle error
+			}
 
-		if i == 0 {
-			prefix = getPrefix(coordinates[0])
-		}
+			if lastX == 0 && lastY == 0 {
+				lastX, lastY = x, y
+			}
 
-		if i >= 2 && (strings.HasPrefix(coordinates[i], "-") || strings.HasPrefix(coordinates[i+1], "-")) {
+			prefix = coord[0]
 			absX, absY := convertToAbsolute(lastX, lastY, x, y, prefix)
 			absoluteCoordinates = append(absoluteCoordinates, Point{absX, absY})
-		}
 
-		lastX, lastY = x, y
+			lastX, lastY = absX, absY
+		} else if len(coord) > 0 {
+			prefix = coord[0]
+		}
 	}
 
 	return Bundesland{id, absoluteCoordinates}
@@ -180,29 +178,31 @@ func calculatePathArea(svgPath string) (float64, error) {
 	var totalArea float64
 	var prefix string
 
-	for i := 0; i < len(coordinates)-1; i += 2 {
-		x, err := strconv.ParseFloat(coordinates[i], 64)
-		if err != nil {
-			return 0, err
-		}
+	for _, coord := range coordinates {
+		if len(coord) > 1 {
+			x, err := strconv.ParseFloat(coord[1], 64)
+			if err != nil {
+				// Handle error
+			}
 
-		y, err := strconv.ParseFloat(coordinates[i+1], 64)
-		if err != nil {
-			return 0, err
-		}
+			y, err := strconv.ParseFloat(coord[2], 64)
+			if err != nil {
+				// Handle error
+			}
 
-		if i == 0 {
-			startX, startY = x, y
-			prefix = getPrefix(coordinates[0])
-		}
+			if lastX == 0 && lastY == 0 {
+				lastX, lastY = x, y
+			}
 
-		if i >= 2 && (strings.HasPrefix(coordinates[i], "-") || strings.HasPrefix(coordinates[i+1], "-")) {
+			prefix = coord[0]
 			absX, absY := convertToAbsolute(lastX, lastY, x, y, prefix)
 			area := calculatePolygonArea(startX, startY, lastX, lastY, absX, absY)
 			areas = append(areas, area)
-		}
 
-		lastX, lastY = x, y
+			lastX, lastY = absX, absY
+		} else if len(coord) > 0 {
+			prefix = coord[0]
+		}
 	}
 
 	for _, area := range areas {
@@ -212,16 +212,27 @@ func calculatePathArea(svgPath string) (float64, error) {
 	return totalArea, nil
 }
 
-func extractCoordinates(svgPath string) []string {
-	regexPattern := `[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?`
+func extractCoordinates(svgPath string) [][]string {
+	regexPattern := `([a-zA-Z])([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?),([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)`
 	regex, err := regexp.Compile(regexPattern)
 	if err != nil {
 		return nil
 	}
 
-	matches := regex.FindAllString(svgPath, -1)
+	matches := regex.FindAllStringSubmatch(svgPath, -1)
+	if matches == nil {
+		return nil
+	}
 
-	return matches
+	coordinates := make([][]string, len(matches))
+	for i, match := range matches {
+		prefix := match[1]
+		coord1 := match[2]
+		coord2 := match[3]
+		coordinates[i] = []string{prefix, coord1, coord2}
+	}
+
+	return coordinates
 }
 
 func getPrefix(coord string) string {
@@ -276,8 +287,4 @@ type Bundesland struct {
 type City struct {
 	id         string
 	coordinate Point
-}
-
-func hasArcType(svgPath string) bool {
-	return strings.Contains(svgPath, `sodipodi:type="arc"`)
 }
