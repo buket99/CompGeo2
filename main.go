@@ -20,30 +20,27 @@ func main() {
 	var staedte []City
 	var areaGermany float64
 	svgString := string(svgContent)
-	var berlinArea float64
-	var bremenArea float64
+	//	var berlinArea float64
+	//	var bremenArea float64
 
 	bundeslaenderPaths := extractBundesländerPaths(svgString)
 	for id, path := range bundeslaenderPaths {
 		var bundesland = extractBundesland(path, id)
-		area, err := calculatePathArea(path)
-		if err != nil {
-			fmt.Printf("Error calculating area for %s: %s\n", id, err)
-			continue
-		}
-		if id == "Berlin" {
-			berlinArea = area
-		}
-		if id == "Bremen" {
-			bremenArea = area
-		}
-		bundesland.area = area
+		// area := calculatePolygonAreaNew(bundesland.coordinates)
+		/*	if id == "Berlin" {
+				berlinArea = area
+			}
+			if id == "Bremen" {
+				bremenArea = area
+			}*/
+
+		// bundesland.area = area
 		bundeslaender = append(bundeslaender, bundesland)
-		areaGermany = areaGermany + area
-		fmt.Printf("Fläche für %s: %f\n", id, area)
+		areaGermany = areaGermany + bundesland.area
+		fmt.Printf("Fläche für %s: %f\n", id, bundesland.area)
 	}
 	// Special check for Brandenburg because it will calculate Berlin into the area
-	for i := range bundeslaender {
+	/*for i := range bundeslaender {
 		if bundeslaender[i].id == "Brandenburg" {
 			// Update the area attribute of the element
 			bundeslaender[i].area = bundeslaender[i].area - berlinArea
@@ -54,7 +51,7 @@ func main() {
 			bundeslaender[i].area = bundeslaender[i].area - bremenArea
 			break
 		}
-	}
+	}*/
 	sort.Slice(bundeslaender, func(i, j int) bool {
 		return bundeslaender[i].area > bundeslaender[j].area
 	})
@@ -79,20 +76,29 @@ func main() {
 }
 
 func istStadtInBundesland(stadt City, bundesl Bundesland) bool {
-	numVertices := len(bundesl.coordinates)
-	if numVertices < 3 {
+	numPolygons := len(bundesl.coordinates)
+	if numPolygons == 0 {
 		return false
 	}
-	intersections := 0
-	for i := 0; i < numVertices; i++ {
-		currentVertex := bundesl.coordinates[i]
-		nextVertex := bundesl.coordinates[(i+1)%numVertices]
 
-		if (currentVertex.Y > stadt.coordinate.Y) != (nextVertex.Y > stadt.coordinate.Y) &&
-			stadt.coordinate.X < (nextVertex.X-currentVertex.X)*(stadt.coordinate.Y-currentVertex.Y)/(nextVertex.Y-currentVertex.Y)+currentVertex.X {
-			intersections++
+	intersections := 0
+	for _, polygon := range bundesl.coordinates {
+		numVertices := len(polygon)
+		if numVertices < 3 {
+			continue
+		}
+
+		for i := 0; i < numVertices; i++ {
+			currentVertex := polygon[i]
+			nextVertex := polygon[(i+1)%numVertices]
+
+			if (currentVertex.Y > stadt.coordinate.Y) != (nextVertex.Y > stadt.coordinate.Y) &&
+				stadt.coordinate.X < (nextVertex.X-currentVertex.X)*(stadt.coordinate.Y-currentVertex.Y)/(nextVertex.Y-currentVertex.Y)+currentVertex.X {
+				intersections++
+			}
 		}
 	}
+
 	return intersections%2 != 0
 }
 
@@ -135,11 +141,12 @@ func extractStadt(path string, id string) City {
 }
 
 func extractBundesland(path string, id string) Bundesland {
-	var absoluteCoordinates []Point
+	var coordinatePoints [][]Point
 	coordinates := extractCoordinates(path)
 
 	var lastX, lastY float64
 	var prefix string
+	var polygon []Point
 
 	for _, coord := range coordinates {
 		if len(coord) > 1 {
@@ -158,17 +165,34 @@ func extractBundesland(path string, id string) Bundesland {
 			}
 
 			prefix = coord[0]
+
 			absX, absY := convertToAbsolute(lastX, lastY, x, y, prefix)
-			absoluteCoordinates = append(absoluteCoordinates, Point{absX, absY})
+			polygon = append(polygon, Point{absX, absY})
 
 			lastX, lastY = absX, absY
-		} else if len(coord) > 0 {
-			prefix = coord[0]
+			if prefix == "L" {
+				coordinatePoints = append(coordinatePoints, polygon)
+				polygon = []Point{}
+			}
 		}
 	}
 
-	return Bundesland{id, absoluteCoordinates, 0}
+	var bundesland Bundesland
+	bundesland.id = id
+	bundesland.area = 0.0
 
+	for _, polygonPoints := range coordinatePoints {
+		var points []Point
+		for _, point := range polygonPoints {
+			points = append(points, Point{X: point.X, Y: point.Y})
+		}
+		area := calculatePolygonAreaNew(points)
+		coordinatePoints = append(coordinatePoints, points)
+		bundesland.area += area
+	}
+	bundesland.coordinates = coordinatePoints
+
+	return bundesland
 }
 
 func extractBundesländerPaths(svgString string) map[string]string {
@@ -197,53 +221,16 @@ func extractBundesländerPaths(svgString string) map[string]string {
 	return paths
 }
 
-func calculatePathArea(svgPath string) (float64, error) {
-	coordinates := extractCoordinates(svgPath)
-	if len(coordinates) < 6 {
-		return 0, fmt.Errorf("failed to find valid coordinate pairs in SVG path")
+func calculatePolygonAreaNew(coordinates []Point) float64 {
+	n := len(coordinates)
+	area := 0.0
+
+	for i := 0; i < n; i++ {
+		j := (i + 1) % n
+		area += (coordinates[i].X + coordinates[j].X) * (coordinates[i].Y - coordinates[j].Y)
 	}
 
-	var areas []float64
-	var startX, startY, lastX, lastY float64
-	var totalArea float64
-	var prefix string
-
-	for _, coord := range coordinates {
-		if len(coord) > 1 {
-			x, err := strconv.ParseFloat(coord[1], 64)
-			if err != nil {
-				// Handle error
-			}
-
-			y, err := strconv.ParseFloat(coord[2], 64)
-			if err != nil {
-				// Handle error
-			}
-
-			if lastX == 0 && lastY == 0 {
-				lastX, lastY = x, y
-				startX, startY = x, y
-			}
-
-			prefix = coord[0]
-			absX, absY := convertToAbsolute(lastX, lastY, x, y, prefix)
-			if prefix == "M" {
-				startX, startY = x, y
-			}
-			area := calculatePolygonArea(startX, startY, lastX, lastY, absX, absY)
-			areas = append(areas, area)
-
-			lastX, lastY = absX, absY
-		} else if len(coord) > 0 {
-			prefix = coord[0]
-		}
-	}
-
-	for _, area := range areas {
-		totalArea += area
-	}
-
-	return totalArea, nil
+	return math.Abs(area / 2.0)
 }
 
 func extractCoordinates(svgPath string) [][]string {
@@ -315,7 +302,7 @@ type Point struct {
 
 type Bundesland struct {
 	id          string
-	coordinates []Point
+	coordinates [][]Point
 	area        float64
 }
 
