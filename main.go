@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"math"
 	"regexp"
+	"sort"
 	"strconv"
 )
 
@@ -17,19 +18,48 @@ func main() {
 	}
 	var bundeslaender []Bundesland
 	var staedte []City
-
+	var areaGermany float64
 	svgString := string(svgContent)
+	var berlinArea float64
+	var bremenArea float64
 
 	bundeslaenderPaths := extractBundesländerPaths(svgString)
 	for id, path := range bundeslaenderPaths {
 		var bundesland = extractBundesland(path, id)
-		bundeslaender = append(bundeslaender, bundesland)
 		area, err := calculatePathArea(path)
 		if err != nil {
 			fmt.Printf("Error calculating area for %s: %s\n", id, err)
 			continue
 		}
-		fmt.Printf("Area for %s: %f\n", id, area)
+		if id == "Berlin" {
+			berlinArea = area
+		}
+		if id == "Bremen" {
+			bremenArea = area
+		}
+		bundesland.area = area
+		bundeslaender = append(bundeslaender, bundesland)
+		areaGermany = areaGermany + area
+		fmt.Printf("Fläche für %s: %f\n", id, area)
+	}
+	// Special check for Brandenburg because it will calculate Berlin into the area
+	for i := range bundeslaender {
+		if bundeslaender[i].id == "Brandenburg" {
+			// Update the area attribute of the element
+			bundeslaender[i].area = bundeslaender[i].area - berlinArea
+			break
+		}
+		if bundeslaender[i].id == "Niedersachsen" {
+			// Update the area attribute of the element
+			bundeslaender[i].area = bundeslaender[i].area - bremenArea
+			break
+		}
+	}
+	sort.Slice(bundeslaender, func(i, j int) bool {
+		return bundeslaender[i].area > bundeslaender[j].area
+	})
+	for j := 0; j < len(bundeslaender); j++ {
+		fmt.Println("Prozentualer Anteil von  ", bundeslaender[j].id, " ist ", bundeslaender[j].area/areaGermany*100)
 	}
 
 	staedtePaths := extractStaedtePaths(svgString)
@@ -137,7 +167,7 @@ func extractBundesland(path string, id string) Bundesland {
 		}
 	}
 
-	return Bundesland{id, absoluteCoordinates}
+	return Bundesland{id, absoluteCoordinates, 0}
 
 }
 
@@ -192,10 +222,14 @@ func calculatePathArea(svgPath string) (float64, error) {
 
 			if lastX == 0 && lastY == 0 {
 				lastX, lastY = x, y
+				startX, startY = x, y
 			}
 
 			prefix = coord[0]
 			absX, absY := convertToAbsolute(lastX, lastY, x, y, prefix)
+			if prefix == "M" {
+				startX, startY = x, y
+			}
 			area := calculatePolygonArea(startX, startY, lastX, lastY, absX, absY)
 			areas = append(areas, area)
 
@@ -282,6 +316,7 @@ type Point struct {
 type Bundesland struct {
 	id          string
 	coordinates []Point
+	area        float64
 }
 
 type City struct {
