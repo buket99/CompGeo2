@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math"
+	"math/rand"
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 func main() {
@@ -20,42 +22,17 @@ func main() {
 	var staedte []City
 	var areaGermany float64
 	svgString := string(svgContent)
-	//	var berlinArea float64
-	//	var bremenArea float64
-
 	bundeslaenderPaths := extractBundesländerPaths(svgString)
 	for id, path := range bundeslaenderPaths {
 		var bundesland = extractBundesland(path, id)
-		// area := calculatePolygonAreaNew(bundesland.coordinates)
-		/*	if id == "Berlin" {
-				berlinArea = area
-			}
-			if id == "Bremen" {
-				bremenArea = area
-			}*/
-
-		// bundesland.area = area
 		bundeslaender = append(bundeslaender, bundesland)
 		areaGermany = areaGermany + bundesland.area
-		fmt.Printf("Fläche für %s: %f\n", id, bundesland.area)
 	}
-	// Special check for Brandenburg because it will calculate Berlin into the area
-	/*for i := range bundeslaender {
-		if bundeslaender[i].id == "Brandenburg" {
-			// Update the area attribute of the element
-			bundeslaender[i].area = bundeslaender[i].area - berlinArea
-			break
-		}
-		if bundeslaender[i].id == "Niedersachsen" {
-			// Update the area attribute of the element
-			bundeslaender[i].area = bundeslaender[i].area - bremenArea
-			break
-		}
-	}*/
 	sort.Slice(bundeslaender, func(i, j int) bool {
 		return bundeslaender[i].area > bundeslaender[j].area
 	})
 	for j := 0; j < len(bundeslaender); j++ {
+		fmt.Printf("Fläche für %s: %f\n", bundeslaender[j].id, bundeslaender[j].area)
 		fmt.Println("Prozentualer Anteil von  ", bundeslaender[j].id, " ist ", bundeslaender[j].area/areaGermany*100)
 	}
 
@@ -66,23 +43,23 @@ func main() {
 	}
 	for i := 0; i < len(staedte); i++ {
 		for j := 0; j < len(bundeslaender); j++ {
-			var test = istStadtInBundesland(staedte[i], bundeslaender[j])
+			var test = istCoordinateInBundesland(staedte[i].coordinate, bundeslaender[j].coordinates)
 			if test == true {
-				fmt.Println("City", staedte[i].id, "is in", bundeslaender[j].id)
+				fmt.Println("Stadt", staedte[i].id, "ist in", bundeslaender[j].id)
 			}
 		}
 	}
 
 }
 
-func istStadtInBundesland(stadt City, bundesl Bundesland) bool {
-	numPolygons := len(bundesl.coordinates)
+func istCoordinateInBundesland(coordinates Point, polygon [][]Point) bool {
+	numPolygons := len(polygon)
 	if numPolygons == 0 {
 		return false
 	}
 
 	intersections := 0
-	for _, polygon := range bundesl.coordinates {
+	for _, polygon := range polygon {
 		numVertices := len(polygon)
 		if numVertices < 3 {
 			continue
@@ -92,8 +69,8 @@ func istStadtInBundesland(stadt City, bundesl Bundesland) bool {
 			currentVertex := polygon[i]
 			nextVertex := polygon[(i+1)%numVertices]
 
-			if (currentVertex.Y > stadt.coordinate.Y) != (nextVertex.Y > stadt.coordinate.Y) &&
-				stadt.coordinate.X < (nextVertex.X-currentVertex.X)*(stadt.coordinate.Y-currentVertex.Y)/(nextVertex.Y-currentVertex.Y)+currentVertex.X {
+			if (currentVertex.Y > coordinates.Y) != (nextVertex.Y > coordinates.Y) &&
+				coordinates.X < (nextVertex.X-currentVertex.X)*(coordinates.Y-currentVertex.Y)/(nextVertex.Y-currentVertex.Y)+currentVertex.X {
 				intersections++
 			}
 		}
@@ -143,8 +120,7 @@ func extractStadt(path string, id string) City {
 func extractBundesland(path string, id string) Bundesland {
 	var coordinatePoints [][]Point
 	coordinates := extractCoordinates(path)
-
-	var lastX, lastY float64
+	var lastX, lastY, startX, startY float64
 	var prefix string
 	var polygon []Point
 
@@ -164,16 +140,23 @@ func extractBundesland(path string, id string) Bundesland {
 				lastX, lastY = x, y
 			}
 
-			prefix = coord[0]
+			if startX == 0 && startY == 0 {
+				startX, startY = x, y
+			}
 
+			prefix = coord[0]
+			if prefix == "z" {
+				coordinatePoints = append(coordinatePoints, polygon)
+				polygon = []Point{}
+				lastX, lastY = 0, 0
+				startX, startY = 0, 0
+				continue
+			}
 			absX, absY := convertToAbsolute(lastX, lastY, x, y, prefix)
 			polygon = append(polygon, Point{absX, absY})
 
 			lastX, lastY = absX, absY
-			if prefix == "L" {
-				coordinatePoints = append(coordinatePoints, polygon)
-				polygon = []Point{}
-			}
+
 		}
 	}
 
@@ -181,18 +164,81 @@ func extractBundesland(path string, id string) Bundesland {
 	bundesland.id = id
 	bundesland.area = 0.0
 
-	for _, polygonPoints := range coordinatePoints {
-		var points []Point
-		for _, point := range polygonPoints {
-			points = append(points, Point{X: point.X, Y: point.Y})
-		}
-		area := calculatePolygonAreaNew(points)
-		coordinatePoints = append(coordinatePoints, points)
-		bundesland.area += area
+	if bundesland.id == "Brandenburg" {
+		print(true)
 	}
+
+	// check if island or hole and then decide if + area oder - area
+	for _, polygonPoints := range coordinatePoints {
+		area := calculatePolygonAreaNew(polygonPoints)
+		if checkIfIsIsland(polygonPoints, coordinatePoints) {
+			bundesland.area += area
+		} else {
+			bundesland.area -= area
+		}
+	}
+
 	bundesland.coordinates = coordinatePoints
 
 	return bundesland
+}
+
+func checkIfIsIsland(polygon []Point, allPolygons [][]Point) bool {
+	var randomPoint = getRandomPointInsidePolygon(polygon)
+	for _, polygonPoints := range allPolygons {
+		var coordinates [][]Point
+		if areArraysEqual(polygon, polygonPoints) {
+			continue
+		}
+		coordinates = append(coordinates, polygonPoints)
+		if istCoordinateInBundesland(randomPoint, coordinates) {
+			return false
+		}
+	}
+	return true
+}
+
+func areArraysEqual(arr1, arr2 []Point) bool {
+	if len(arr1) != len(arr2) {
+		return false
+	}
+
+	for i := 0; i < len(arr1); i++ {
+		if arr1[i] != arr2[i] {
+			return false
+		}
+	}
+
+	return true
+}
+func getRandomPointInsidePolygon(polygon []Point) Point {
+	var minX, maxX, minY, maxY float64
+	var coordinates [][]Point
+	for _, point := range polygon {
+		if point.X < minX || minX == 0 {
+			minX = point.X
+		}
+		if point.X > maxX {
+			maxX = point.X
+		}
+		if point.Y < minY || minY == 0 {
+			minY = point.Y
+		}
+		if point.Y > maxY {
+			maxY = point.Y
+		}
+	}
+
+	for {
+		randomX := minX + rand.Float64()*(maxX-minX)
+		randomY := minY + rand.Float64()*(maxY-minY)
+		randomPoint := Point{randomX, randomY}
+		coordinates = append(coordinates, polygon)
+
+		if istCoordinateInBundesland(randomPoint, coordinates) {
+			return randomPoint
+		}
+	}
 }
 
 func extractBundesländerPaths(svgString string) map[string]string {
@@ -232,9 +278,8 @@ func calculatePolygonAreaNew(coordinates []Point) float64 {
 
 	return math.Abs(area / 2.0)
 }
-
 func extractCoordinates(svgPath string) [][]string {
-	regexPattern := `([a-zA-Z])([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?),([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)`
+	regexPattern := `([a-zA-Z])([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?(?:,[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)?)?`
 	regex, err := regexp.Compile(regexPattern)
 	if err != nil {
 		return nil
@@ -248,27 +293,28 @@ func extractCoordinates(svgPath string) [][]string {
 	coordinates := make([][]string, len(matches))
 	for i, match := range matches {
 		prefix := match[1]
-		coord1 := match[2]
-		coord2 := match[3]
+		coords := match[2]
+
+		// Handle case when coordinates are empty
+		if coords == "" {
+			if prefix == "z" {
+				coords = "0,0" // Set default coordinates for "z" command
+			} else {
+				continue // Skip if no coordinates are available
+			}
+		}
+
+		coordValues := strings.Split(coords, ",")
+		coord1 := coordValues[0]
+		coord2 := ""
+		if len(coordValues) > 1 {
+			coord2 = coordValues[1]
+		}
+
 		coordinates[i] = []string{prefix, coord1, coord2}
 	}
 
 	return coordinates
-}
-
-func getPrefix(coord string) string {
-	regexPattern := `^[A-Za-z]+`
-	regex, err := regexp.Compile(regexPattern)
-	if err != nil {
-		return ""
-	}
-
-	match := regex.FindString(coord)
-	if match != "" {
-		return match
-	}
-
-	return ""
 }
 
 func convertToAbsolute(lastX, lastY, x, y float64, prefix string) (float64, float64) {
@@ -289,13 +335,7 @@ func convertToAbsolute(lastX, lastY, x, y float64, prefix string) (float64, floa
 
 	return x, y
 }
-func calculatePolygonArea(x1, y1, x2, y2, x3, y3 float64) float64 {
-	area := 0.5 * ((x1*y2 + x2*y3 + x3*y1) - (x2*y1 + x3*y2 + x1*y3))
-	return math.Abs(area)
-}
 
-// pro Bundesland koordinaten zurückgeben
-// die Städte einzelne Punkte auslesen
 type Point struct {
 	X, Y float64
 }
