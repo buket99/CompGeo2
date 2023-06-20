@@ -164,10 +164,6 @@ func extractBundesland(path string, id string) Bundesland {
 	bundesland.id = id
 	bundesland.area = 0.0
 
-	if bundesland.id == "Brandenburg" {
-		print(true)
-	}
-
 	// check if island or hole and then decide if + area oder - area
 	for _, polygonPoints := range coordinatePoints {
 		area := calculatePolygonAreaNew(polygonPoints)
