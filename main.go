@@ -187,7 +187,9 @@ func checkIfIsland(polygon []Point, allPolygons [][]Point) bool {
 		}
 		coordinates = append(coordinates, polygonPoints)
 		if isCoordinateInBundesland(randomPoint, coordinates) {
-			return false
+			if calculatePolygonAreaNew(polygon) < calculatePolygonAreaNew(polygonPoints) {
+				return false
+			}
 		}
 	}
 	return true

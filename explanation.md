@@ -25,15 +25,20 @@ eine Insel oder ein Loch handelt. Hierfür wird die Funktion ` checkIfIsland`
 verwendet. Die Überprüfung muss erfolgen, um sicherzustellen, dass beispielsweise 
 in Niedersachsen, der Flächeninhalt von Bremen nicht mit berechnet wird. Bremen 
 soll in in diesem Fall als „Loch“ angenommen werden (siehe Abbildung). Die 
-Überprüfung erfolgt, indem eine zufällige Variable erzeugt wird, und durch alle 
+Überprüfung erfolgt, indem eine zufällige Variable erzeugt wird, und durch alle
 Polygone iteriert wird, welche das Bundesland repräsentieren. Falls das gegebene 
 Polygon und das aktuelle Polygon in der Schleife identisch sind, wird die Schleife 
 übersprungen, ansonsten wird das aktuelle Polygon der Variable `coordinates` 
 hinzugefügt. In `coordinates` werden vorübergehend für jedes Polygon die Koordinaten 
 gespeichert. Anschließend wird geprüft, ob die zufällige Variable, innerhalb den 
-temporären Koordinaten liegt. Hierfür wird die Hilfsfunktion `isCoordinateInFederalState` 
+temporären Koordinaten liegt. Hierfür wird die Hilfsfunktion `isCoordinateInBundesland` 
 verwendet. Falls der zufällige Punkt in keinem Polygon liegt, wird `true` zurückgeliefert, 
-um anzuzeigen, dass das Polygon eine Insel ist.
+um anzuzeigen, dass das Polygon eine Insel ist. Falls die Koordinate auch in einem anderem
+Bundesland liegt, wird zudem geprüft, ob es sich in dieser Schleife um das Loch oder das 
+Bundesland handelt in dem das Loch ist, indem die Flächeninhalte verglichen wird. Falls
+der Flächeninhalt des gerade betrachteten Polygons kleiner ist, handelt es sich um das Loch
+und es wird `false` zurückgegeben. Das bedeutet es handelt sich um keine Insel bzw. Bundesland 
+und wird nicht addiert sondern vom Flächeninhalt abgezogen.
 
 ![Niedersachsen_ohne_Bremen.png](Niedersachsen_ohne_Bremen.png)
 
