@@ -35,7 +35,7 @@ func main() {
 		fmt.Printf("Fläche für %s: %f\n", bundeslaender[j].id, bundeslaender[j].area)
 		fmt.Println("Prozentualer Anteil von  ", bundeslaender[j].id, " ist ", bundeslaender[j].area/areaGermany*100)
 	}
-
+	fmt.Println("The area of Germany is: ", areaGermany)
 	staedtePaths := extractStaedtePaths(svgString)
 	for id, path := range staedtePaths {
 		var stadt = extractStadt(path, id)
@@ -43,16 +43,15 @@ func main() {
 	}
 	for i := 0; i < len(staedte); i++ {
 		for j := 0; j < len(bundeslaender); j++ {
-			var test = istCoordinateInBundesland(staedte[i].coordinate, bundeslaender[j].coordinates)
+			var test = isCoordinateInBundesland(staedte[i].coordinate, bundeslaender[j].coordinates)
 			if test == true {
-				fmt.Println("Stadt", staedte[i].id, "ist in", bundeslaender[j].id)
+				fmt.Println("Die Stadt", staedte[i].id, "ist in", bundeslaender[j].id)
 			}
 		}
 	}
-
 }
 
-func istCoordinateInBundesland(coordinates Point, polygon [][]Point) bool {
+func isCoordinateInBundesland(coordinates Point, polygon [][]Point) bool {
 	numPolygons := len(polygon)
 	if numPolygons == 0 {
 		return false
@@ -167,7 +166,7 @@ func extractBundesland(path string, id string) Bundesland {
 	// check if island or hole and then decide if + area oder - area
 	for _, polygonPoints := range coordinatePoints {
 		area := calculatePolygonAreaNew(polygonPoints)
-		if checkIfIsIsland(polygonPoints, coordinatePoints) {
+		if checkIfIsland(polygonPoints, coordinatePoints) {
 			bundesland.area += area
 		} else {
 			bundesland.area -= area
@@ -179,7 +178,7 @@ func extractBundesland(path string, id string) Bundesland {
 	return bundesland
 }
 
-func checkIfIsIsland(polygon []Point, allPolygons [][]Point) bool {
+func checkIfIsland(polygon []Point, allPolygons [][]Point) bool {
 	var randomPoint = getRandomPointInsidePolygon(polygon)
 	for _, polygonPoints := range allPolygons {
 		var coordinates [][]Point
@@ -187,7 +186,7 @@ func checkIfIsIsland(polygon []Point, allPolygons [][]Point) bool {
 			continue
 		}
 		coordinates = append(coordinates, polygonPoints)
-		if istCoordinateInBundesland(randomPoint, coordinates) {
+		if isCoordinateInBundesland(randomPoint, coordinates) {
 			return false
 		}
 	}
@@ -231,7 +230,7 @@ func getRandomPointInsidePolygon(polygon []Point) Point {
 		randomPoint := Point{randomX, randomY}
 		coordinates = append(coordinates, polygon)
 
-		if istCoordinateInBundesland(randomPoint, coordinates) {
+		if isCoordinateInBundesland(randomPoint, coordinates) {
 			return randomPoint
 		}
 	}
